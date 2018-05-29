@@ -70,13 +70,12 @@ class CoResearchNavigatorProvisionerTarget extends CoProvisionerPluginTarget {
       case ProvisioningActionEnum::CoPersonReprovisionRequested:
       case ProvisioningActionEnum::CoPersonUnexpired:
       case ProvisioningActionEnum::CoPersonUpdated:
-        $syncPerson = true;
-        break;
       case ProvisioningActionEnum::CoPersonDeleted:
-        // XXX under what circumstances do we delete a person?
-        // We don't do anything here because typically we don't have any useful
-        // information to process, and we've probably deprovisioned due to
-        // status change/group membership loss/etc.
+        // We can get CoPersonDeleted under a few different circumstances, including
+        // if the person is removed from the Provisioning Group.
+        // XXX Currently this will just set isenabled=false, but should the entire
+        // row (ever) be removed?
+        $syncPerson = true;
         break;
       default:
         // Ignore all other actions. Note group membership changes
@@ -86,19 +85,21 @@ class CoResearchNavigatorProvisionerTarget extends CoProvisionerPluginTarget {
     }
     
     if($syncPerson) {
-      // Find the target identifier
-      if(empty($coProvisioningTargetData['CoResearchNavigatorProvisionerTarget']['record_id_type'])) {
-        throw new InvalidArgumentException('er.researchnavigatorprovisioner.cfg.identifier');
-      }
+      // Research Navigator wants Org Identity attributes, but ProvisionerBehavior doesn't
+      // currently support it (CO-1394). So we need to pull the Org Identity records manually.
+      // NOTE: This means a change to an Org Identity record will NOT trigger provisioning.
       
-      $idType = $coProvisioningTargetData['CoResearchNavigatorProvisionerTarget']['record_id_type'];
+      $args = array();
+      $args['conditions']['CoOrgIdentityLink.co_person_id'] = $provisioningData['CoPerson']['id'];
+      $args['contain'] = array(
+        'OrgIdentity' => array(
+          'PrimaryName',
+          'EmailAddress',
+          'Identifier'
+        )
+      );
       
-      $identifier = Hash::extract($provisioningData, 'Identifier.{n}[type=' . $idType . ']');
-      
-      if(empty($identifier)) {
-        throw new InvalidArgumentException('er.researchnavigatorprovisioner.attr', 
-                                           array($coProvisioningTargetData['CoResearchNavigatorProvisionerTarget']['record_id_type']));
-      }
+      $orgIdentities = $this->CoProvisioningTarget->Co->CoPerson->CoOrgIdentityLink->find('all', $args);
       
       // Just let any exceptions bubble up the stack
       $this->CoProvisioningTarget->Co->Server->SqlServer->connect($coProvisioningTargetData['CoResearchNavigatorProvisionerTarget']['server_id'], "rnav");
@@ -109,59 +110,131 @@ class CoResearchNavigatorProvisionerTarget extends CoProvisionerPluginTarget {
         'ds'    => 'rnav'
       ));
       
-      $data = array(
-        'ComanagePerson' => array(
-          'lastmodifieddate'  => DboSource::expression('NOW()'),
-        )
-      );
+      // We manage one row per Org Identity, due to the constraints of the RN data format
       
-      // Do we already have a record for this ID?
-      $currecid = $ComanagePerson->field('id', array('ComanagePerson.kerberosid' => $identifier[0]['identifier']));
-      
-      if($currecid) {
-        $data['ComanagePerson']['id'] = $currecid;
-      } else {
-        $data['ComanagePerson']['createddate'] = DboSource::expression('NOW()');
-      }
-      
-      $data['ComanagePerson']['kerberosid'] = $identifier[0]['identifier'];
-      
-      if(!empty($provisioningData['PrimaryName']['given'])) {
-        $data['ComanagePerson']['firstname'] = $provisioningData['PrimaryName']['given'];
-      } else {
-        throw new RuntimeException(_txt('er.researchnavigatorprovisioner.attr', array(_txt('fd.name.given'))));
-      }
-      if(!empty($provisioningData['PrimaryName']['middle'])) {
-        $data['ComanagePerson']['middlename'] = $provisioningData['PrimaryName']['middle'];
-      }
-      if(!empty($provisioningData['PrimaryName']['family'])) {
-        $data['ComanagePerson']['lastname'] = $provisioningData['PrimaryName']['family'];
-      } else {
-        throw new RuntimeException(_txt('er.researchnavigatorprovisioner.attr', array(_txt('fd.name.family'))));
-      }
-      
-      if(!empty($provisioningData['EmailAddress'])) {
-        // XXX Which email address? For now just pick the first
+      foreach($orgIdentities as $orgId) {
+        $ComanagePerson->clear();
         
-        if(!empty($provisioningData['EmailAddress'][0]['mail'])) {
-          // Look for the first address of any type
-          $data['ComanagePerson']['email'] = $provisioningData['EmailAddress'][0]['mail'];
-        }
-      }
-      
-      if(!empty($provisioningData['CoPersonRole'][0])) {
-        // XXX Which role? For now just pick the first.This can be coerced
-        // by setting CoPersonRole.ordr.
-        if(!empty($provisioningData['CoPersonRole'][0]['o'])) {
-          $data['ComanagePerson']['institution'] = $provisioningData['CoPersonRole'][0]['o'];
+        $data = array(
+          'ComanagePerson' => array(
+            // We can assume NOW() for the last modified date since presumably
+            // something changed to trigger provisioning
+            'lastmodifieddate'  => DboSource::expression('NOW()'),
+          )
+        );
+        
+        // Find the login identifier for this record, we'll use that as the key
+        $identifier = Hash::extract($orgId, 'OrgIdentity.Identifier.{n}[login=true]');
+        
+        if(empty($identifier)) {
+          // No login identifier, skip this identity
+          continue;
         }
         
-        if(!empty($provisioningData['CoPersonRole'][0]['title'])) {
-          $data['ComanagePerson']['title'] = $provisioningData['CoPersonRole'][0]['title'];
+        $data['ComanagePerson']['kerberosid'] = $identifier[0]['identifier'];
+        
+        // Do we already have a record for this ID?
+        $currecid = $ComanagePerson->field('id', array('ComanagePerson.kerberosid' => $identifier[0]['identifier']));
+        
+        if($currecid) {
+          $data['ComanagePerson']['id'] = $currecid;
         }
+        
+        // This shouldn't change after the initial record is created, but we'll sync on update anyway
+        $data['ComanagePerson']['createddate'] = $orgId['OrgIdentity']['created'];
+        
+        if(!empty($orgId['OrgIdentity']['PrimaryName']['given'])) {
+          $data['ComanagePerson']['firstname'] = $orgId['OrgIdentity']['PrimaryName']['given'];
+        } else {
+          // No given name, skip this identity
+          continue;
+        }
+        if(!empty($provisioningData['PrimaryName']['middle'])) {
+          $data['ComanagePerson']['middlename'] = $orgId['OrgIdentity']['PrimaryName']['middle'];
+        }
+        if(!empty($provisioningData['PrimaryName']['family'])) {
+          $data['ComanagePerson']['lastname'] = $orgId['OrgIdentity']['PrimaryName']['family'];
+        } else {
+          // No last name, skip this identity
+          continue;
+        }
+        
+        if(!empty($orgId['OrgIdentity']['o'])) {
+          $data['ComanagePerson']['institution'] = $orgId['OrgIdentity']['o'];
+        }
+        
+        if(!empty($orgId['OrgIdentity']['EmailAddress'][0]['mail'])) {
+          // For now we just pick the first address in the unlikely event there
+          // is more than one
+          
+          $data['ComanagePerson']['email'] = $orgId['OrgIdentity']['EmailAddress'][0]['mail'];
+        }
+        
+        if(!empty($provisioningData['CoPerson']['status'])
+           && in_array($provisioningData['CoPerson']['status'],
+                       array(StatusEnum::Active, StatusEnum::GracePeriod))) {
+          $data['ComanagePerson']['isenabled'] = true;
+        } else {
+          $data['ComanagePerson']['isenabled'] = false;
+        }
+        
+        // For affiliation records, see if the OrgIdentity has it populated, otherwise
+        // look at the CO Person Role
+        
+        $affil = null;
+        
+        if(!empty($orgId['OrgIdentity']['affiliation'])) {
+          $affil = $orgId['OrgIdentity']['affiliation'];
+        } elseif(!empty($provisioningData['CoPersonRole'][0]['affiliation'])) {
+          $affil = $provisioningData['CoPersonRole'][0]['affiliation'];
+        }
+        
+        if($affil) {
+          $data['ComanagePerson']['isemployee'] = false;
+          $data['ComanagePerson']['isfaculty'] = false;
+          
+          switch($affil) {
+            case AffiliationEnum::Employee:
+            case AffiliationEnum::Staff:
+              $data['ComanagePerson']['isemployee'] = true;
+              break;
+            case AffiliationEnum::Faculty:
+              $data['ComanagePerson']['isfaculty'] = true;
+              $data['ComanagePerson']['isemployee'] = true;
+              break;
+            default:
+              break;
+          }
+        }
+        
+        // Temporary implementation pending further requirements
+        if(!empty($provisioningData['CoPersonRole'][0])) {
+          // XXX Depending on how renewals work, we may need to look for first
+          // active role instead of first role
+          
+          if(!empty($provisioningData['CoPersonRole'][0]['title'])) {
+            $data['ComanagePerson']['title'] = $provisioningData['CoPersonRole'][0]['title'];
+          }
+        }
+        
+        // Find the platform identifier
+        if(empty($coProvisioningTargetData['CoResearchNavigatorProvisionerTarget']['record_id_type'])) {
+          throw new InvalidArgumentException('er.researchnavigatorprovisioner.cfg.identifier');
+        }
+        
+        $idType = $coProvisioningTargetData['CoResearchNavigatorProvisionerTarget']['record_id_type'];
+        
+        $identifier = Hash::extract($provisioningData, 'Identifier.{n}[type=' . $idType . ']');
+        
+        if(empty($identifier)) {
+          throw new InvalidArgumentException('er.researchnavigatorprovisioner.attr', 
+                                             array($coProvisioningTargetData['CoResearchNavigatorProvisionerTarget']['record_id_type']));
+        }
+        
+        $data['ComanagePerson']['employeeid'] = $identifier[0]['identifier'];
+        
+        $ComanagePerson->save($data);
       }
-      
-      $ComanagePerson->save($data);
     }
     
     return true;
