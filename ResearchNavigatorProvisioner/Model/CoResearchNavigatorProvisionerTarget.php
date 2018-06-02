@@ -128,6 +128,7 @@ class CoResearchNavigatorProvisionerTarget extends CoProvisionerPluginTarget {
         
         if(empty($identifier)) {
           // No login identifier, skip this identity
+          $this->log('WARNING: No identifier found for Org Identity ' . $orgId['OrgIdentity']['id']);
           continue;
         }
         
@@ -147,6 +148,7 @@ class CoResearchNavigatorProvisionerTarget extends CoProvisionerPluginTarget {
           $data['ComanagePerson']['firstname'] = $orgId['OrgIdentity']['PrimaryName']['given'];
         } else {
           // No given name, skip this identity
+          $this->log('WARNING: No given name found for ' . $data['ComanagePerson']['kerberosid']);
           continue;
         }
         if(!empty($provisioningData['PrimaryName']['middle'])) {
@@ -156,6 +158,7 @@ class CoResearchNavigatorProvisionerTarget extends CoProvisionerPluginTarget {
           $data['ComanagePerson']['lastname'] = $orgId['OrgIdentity']['PrimaryName']['family'];
         } else {
           // No last name, skip this identity
+          $this->log('WARNING: No family name found for ' . $data['ComanagePerson']['kerberosid']);
           continue;
         }
         
