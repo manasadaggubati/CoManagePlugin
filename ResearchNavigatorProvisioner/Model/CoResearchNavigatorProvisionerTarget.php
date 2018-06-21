@@ -166,6 +166,10 @@ class CoResearchNavigatorProvisionerTarget extends CoProvisionerPluginTarget {
           $data['ComanagePerson']['institution'] = $orgId['OrgIdentity']['o'];
         }
         
+        if(!empty($orgId['OrgIdentity']['ou'])) {
+          $data['ComanagePerson']['department'] = $orgId['OrgIdentity']['ou'];
+        }
+        
         if(!empty($orgId['OrgIdentity']['EmailAddress'][0]['mail'])) {
           // For now we just pick the first address in the unlikely event there
           // is more than one
@@ -210,13 +214,27 @@ class CoResearchNavigatorProvisionerTarget extends CoProvisionerPluginTarget {
           }
         }
         
-        // Temporary implementation pending further requirements
-        if(!empty($provisioningData['CoPersonRole'][0])) {
-          // XXX Depending on how renewals work, we may need to look for first
-          // active role instead of first role
-          
-          if(!empty($provisioningData['CoPersonRole'][0]['title'])) {
-            $data['ComanagePerson']['title'] = $provisioningData['CoPersonRole'][0]['title'];
+        // For various attributes, see if we've already populated them from the
+        // Org Identity, and if not uses values from the CO Person. This is an
+        // interim implementation pending further requirements.
+        
+        // Mapping of export column names to role attribute names
+        $attrs = array(
+          'department' => 'ou',
+          'title'      => 'title'
+        );
+        
+        foreach($attrs as $rnAttr => $coprAttr) {
+          // Have we already found a value from the Org Identity?
+          if(empty($data['ComanagePerson'][$rnAttr])) {
+            // Do we have any CO Person Role values?
+            // XXX Depending on how renewals work, we may need to look for first
+            // active role instead of first role
+            if(!empty($provisioningData['CoPersonRole'][0])) {
+              if(!empty($provisioningData['CoPersonRole'][0][$coprAttr])) {
+                $data['ComanagePerson'][$rnAttr] = $provisioningData['CoPersonRole'][0][$coprAttr];
+              }
+            }
           }
         }
         
