@@ -96,6 +96,9 @@ class CoResearchNavigatorProvisionerTarget extends CoProvisionerPluginTarget {
           'PrimaryName',
           'EmailAddress',
           'Identifier'
+        ),
+        'CoPerson' => array(
+          'Identifier'
         )
       );
       
@@ -132,10 +135,33 @@ class CoResearchNavigatorProvisionerTarget extends CoProvisionerPluginTarget {
           continue;
         }
         
-        $data['ComanagePerson']['kerberosid'] = $identifier[0]['identifier'];
+        // $loginId is the IdP asserted identifier
+        $loginId = $identifier[0]['identifier'];
+        
+        // Look through the CO Person identifiers for the appropriate short ID
+        $copIds = Hash::extract($orgId, 'CoPerson.Identifier.{n}[type=shortorgid]');
+        
+        $shortId = null;
+        
+        foreach($copIds as $cid) {
+          // Short Identifier is of the form <originalid>:EXT<string>.
+          // We want to provision the portion starting with EXT.
+          if(!empty($cid['identifier'])
+             && strncmp($cid['identifier'], $loginId.':EXT', strlen($loginId)+4)==0) {
+            $shortId = strrchr($cid['identifier'], "EXT");
+          }
+        }
+        
+        if(!$shortId) {
+          // No short ID found (this shouldn't really happen), skip this identity
+          $this->log('WARNING: No short identifier found for Org Identity ' . $orgId['OrgIdentity']['id']);
+          continue;
+        }
+        
+        $data['ComanagePerson']['kerberosid'] = $shortId;
         
         // Do we already have a record for this ID?
-        $currecid = $ComanagePerson->field('id', array('ComanagePerson.kerberosid' => $identifier[0]['identifier']));
+        $currecid = $ComanagePerson->field('id', array('ComanagePerson.kerberosid' => $shortId));
         
         if($currecid) {
           $data['ComanagePerson']['id'] = $currecid;

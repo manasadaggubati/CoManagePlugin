@@ -1,0 +1,18 @@
+Plugin to create a <= 20 character identifier for Organizational Identity
+login identifiers. This is because Research Navigator cannot accept login
+identifiers of > 20 characters.
+
+Because Organizational Identities created via EnvSource are read only, we
+don't attach the abbreviated identifier to the Organizational Identity it
+is associated with. Instead, we attach it to the CO Person, and assign it
+type "shortorgid".
+
+The actual identifier is of the form <originalidentifier>:EXT<shortkey>.
+The portion to be provisioned directly to Research Navigator begins with "EXT".
+The full syntax is intended for the SAML proxy to be able to map between the
+original identifier and the shortened version.
+
+NOTE: This means the custom Extended Type "shortorgid" must be created
+before this plugin is activated.
+
+NOTE: This plugin is hardcoded for CO ID #2.
