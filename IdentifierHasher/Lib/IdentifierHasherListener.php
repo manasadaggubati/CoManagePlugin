@@ -57,6 +57,86 @@ class IdentifierHasherListener implements CakeEventListener {
   }
   
   /**
+   * Handle the actual synchronization (shortening) of an identifier.
+   *
+   * @since  COmanage Registry v3.2.0
+   * @param  Identifier $Identifier Identifier class instantiation
+   * @param  Array      $id         Identifier record
+   * 
+   */
+  
+  protected function syncIdentifier($Identifier, $id) {
+    $longId = $id['identifier'];
+    $shortId = "EXT" . $id['id'];
+    $concatId = $longId . ":" . $shortId;
+    
+    // We need the corresponding CO Person ID
+    $CoOrgIdentityLink = ClassRegistry::init('CoOrgIdentityLink');
+    
+    $args = array();
+    $args['conditions']['CoOrgIdentityLink.org_identity_id'] = $id['org_identity_id'];
+    $args['contain'] = 'CoPerson';
+    
+    $link = $CoOrgIdentityLink->find('first', $args);
+    
+    if(!$link || empty($link['CoOrgIdentityLink']['co_person_id'])) {
+      // No CO Person ID, nothing to do
+      return true;
+    }
+    
+    // For now we hardcode the CO we're interested in, though ultimately it
+    // would be better to enable on a per-CO basis, eg
+    //  https://bugs.internet2.edu/jira/browse/CO-1646
+    if($link['CoPerson']['co_id'] != 2) {
+      // If CO is not 2, don't do anything
+      return true;
+    }
+    
+    // Is there already an identifier associated with this $shortId?
+    $args = array();
+    $args['conditions']['Identifier.identifier LIKE'] = '%:' . $shortId;
+    $args['conditions']['Identifier.co_person_id'] = $link['CoOrgIdentityLink']['co_person_id'];
+    $args['contain'] = false;
+    
+    $curId = $Identifier->find('first', $args);
+    
+    if(!empty($curId)) {
+      if($curId['Identifier']['identifier'] == $concatId) {
+        // Nothing to do, identifier already exists
+        return true;
+      }
+    }
+    
+    $newId = array(
+      'Identifier' => array(
+        'identifier'           => $concatId,
+        'co_person_id'         => $link['CoOrgIdentityLink']['co_person_id'],
+        'type'                 => 'shortorgid',
+        'status'               => StatusEnum::Active,
+        'login'                => false
+      )
+    );
+    
+    if(!empty($curId['Identifier']['id'])) {
+      // Update the existing record
+      $newId['Identifier']['id'] = $curId['Identifier']['id'];
+    }
+    
+    // Make sure the validation rules are set for extended types, which isn't
+    // set when we get here via CoOrgIdentityLink (since it does not extend
+    // MVPAController).
+    
+    $vrule = $Identifier->validate['type']['content']['rule'];
+    $vrule[1]['coid'] = $link['CoPerson']['co_id'];
+    $Identifier->validator()->getField('type')->getRule('content')->rule = $vrule;    
+    
+    $Identifier->clear();
+    $Identifier->save($newId);    
+    
+    return true;
+  }
+  
+  /**
    * Handle an Identifier Saved event by creating or updating the associated
    * short identifier.
    *
@@ -82,66 +162,32 @@ class IdentifierHasherListener implements CakeEventListener {
       if(!empty($identifier['org_identity_id'])
          && isset($identifier['login']) && $identifier['login']
          && !empty($identifier['identifier'])) {
-        $longId = $identifier['identifier'];
-        $shortId = "EXT" . $identifier['id'];
-        $concatId = $longId . ":" . $shortId;
+        $Identifier = ClassRegistry::init('Identifier');
         
-        // We need the corresponding CO Person ID
-        $CoOrgIdentityLink = ClassRegistry::init('CoOrgIdentityLink');
+        $this->syncIdentifier($Identifier, $identifier);
+      }
+    } elseif($subject->name == 'CoOrgIdentityLink') {
+      // If an Org Identity is linked to a CO Person (which might happen eg
+      // after an OIS record is created and pipelined to a CO Person), we need
+      // to check for any identifiers to hash.
+      
+      $link = $subject->data['CoOrgIdentityLink'];
+      
+      if(!empty($link['org_identity_id'])) {
+        // Look for Identifiers attached to the Org Identity
         
         $args = array();
-        $args['conditions']['CoOrgIdentityLink.org_identity_id'] = $identifier['org_identity_id'];
-        $args['contain'] = 'CoPerson';
-        
-        $link = $CoOrgIdentityLink->find('first', $args);
-        
-        if(!$link || empty($link['CoOrgIdentityLink']['co_person_id'])) {
-          // No CO Person ID, nothing to do
-          return true;
-        }
-        
-        // For now we hardcode the CO we're interested in, though ultimately it
-        // would be better to enable on a per-CO basis, eg
-        //  https://bugs.internet2.edu/jira/browse/CO-1646
-        if($link['CoPerson']['co_id'] != 2) {
-          // If CO is not 2, don't do anything
-          return true;
-        }
+        $args['conditions']['Identifier.org_identity_id'] = $link['org_identity_id'];
+        $args['conditions']['Identifier.login'] = true;
+        $args['contain'] = false;
         
         $Identifier = ClassRegistry::init('Identifier');
         
-        // Is there already an identifier associated with this $shortId?
-        $args = array();
-        $args['conditions']['Identifier.identifier LIKE'] = '%:' . $shortId;
-        $args['conditions']['Identifier.co_person_id'] = $link['CoOrgIdentityLink']['co_person_id'];
-        $args['contain'] = false;
+        $ids = $Identifier->find('all', $args);
         
-        $curId = $Identifier->find('first', $args);
-        
-        if(!empty($curId)) {
-          if($curId['Identifier']['identifier'] == $concatId) {
-            // Nothing to do, identifier already exists
-            return true;
-          }
+        foreach($ids as $id) {
+          $this->syncIdentifier($Identifier, $id['Identifier']);
         }
-        
-        $newId = array(
-          'Identifier' => array(
-            'identifier'           => $concatId,
-            'co_person_id'         => $link['CoOrgIdentityLink']['co_person_id'],
-            'type'                 => 'shortorgid',
-            'status'               => StatusEnum::Active,
-            'login'                => false
-          )
-        );
-        
-        if(!empty($curId['Identifier']['id'])) {
-          // Update the existing record
-          $newId['Identifier']['id'] = $curId['Identifier']['id'];
-        }
-        
-        $Identifier->clear();
-        $Identifier->save($newId);
       }
     }
     
