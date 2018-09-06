@@ -274,8 +274,12 @@ class CoResearchNavigatorProvisionerTarget extends CoProvisionerPluginTarget {
         $identifier = Hash::extract($provisioningData, 'Identifier.{n}[type=' . $idType . ']');
         
         if(empty($identifier)) {
-          throw new InvalidArgumentException('er.researchnavigatorprovisioner.attr', 
-                                             array($coProvisioningTargetData['CoResearchNavigatorProvisionerTarget']['record_id_type']));
+          // Note this is likely to be empty at some point during enrollment.
+          // Normally this shouldn't matter, but the IdentifierHasher doesn't know
+          // how to suppress provisioning during enrollment, so we may fire too early.
+          $this->log(_txt('er.researchnavigatorprovisioner.attr', 
+                          array($coProvisioningTargetData['CoResearchNavigatorProvisionerTarget']['record_id_type'])));
+          continue;
         }
         
         $data['ComanagePerson']['employeeid'] = $identifier[0]['identifier'];

@@ -87,8 +87,8 @@ class IdentifierHasherListener implements CakeEventListener {
     // For now we hardcode the CO we're interested in, though ultimately it
     // would be better to enable on a per-CO basis, eg
     //  https://bugs.internet2.edu/jira/browse/CO-1646
-    if($link['CoPerson']['co_id'] != 2) {
-      // If CO is not 2, don't do anything
+    if($link['CoPerson']['co_id'] != 3) {
+      // If CO is not 3, don't do anything
       return true;
     }
     
@@ -131,6 +131,8 @@ class IdentifierHasherListener implements CakeEventListener {
     $Identifier->validator()->getField('type')->getRule('content')->rule = $vrule;    
     
     $Identifier->clear();
+    // We should really check if we're in an enrollment, and if so pass
+    // provision=false, but we don't really have a good way to check.
     $Identifier->save($newId);    
     
     return true;
