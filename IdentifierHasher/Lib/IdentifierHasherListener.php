@@ -162,7 +162,7 @@ class IdentifierHasherListener implements CakeEventListener {
       $identifier = $subject->data['Identifier'];
       
       if(!empty($identifier['org_identity_id'])
-         && isset($identifier['login']) && $identifier['login']
+         && !empty($identifier['type']) && $identifier['type'] == IdentifierEnum::ePPN
          && !empty($identifier['identifier'])) {
         $Identifier = ClassRegistry::init('Identifier');
         
@@ -180,7 +180,7 @@ class IdentifierHasherListener implements CakeEventListener {
         
         $args = array();
         $args['conditions']['Identifier.org_identity_id'] = $link['org_identity_id'];
-        $args['conditions']['Identifier.login'] = true;
+        $args['conditions']['Identifier.type'] = IdentifierEnum::ePPN;
         $args['contain'] = false;
         
         $Identifier = ClassRegistry::init('Identifier');

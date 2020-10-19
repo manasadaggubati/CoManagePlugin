@@ -127,10 +127,10 @@ class CoResearchNavigatorProvisionerTarget extends CoProvisionerPluginTarget {
         );
         
         // Find the login identifier for this record, we'll use that as the key
-        $identifier = Hash::extract($orgId, 'OrgIdentity.Identifier.{n}[login=true]');
+        $identifier = Hash::extract($orgId, 'OrgIdentity.Identifier.{n}[type='.IdentifierEnum::ePPN.']');
         
         if(empty($identifier)) {
-          // No login identifier, skip this identity
+          // No eppn identifier, skip this identity
           $this->log('WARNING: No identifier found for Org Identity ' . $orgId['OrgIdentity']['id']);
           continue;
         }
