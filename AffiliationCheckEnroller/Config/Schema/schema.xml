@@ -1,0 +1,53 @@
+<?xml version="1.0" ?>
+<!--
+ COmanage Registry Affiliation Check Enroller Database Schema
+ 
+ @link          http://www.internet2.edu/comanage COmanage Project
+ @package       registry-plugin
+ @since         COmanage Registry v3.3.0
+ @copyright     NYU Langone Health
+ @license       Not Licensed for External Use
+-->
+<!--
+  While this schema mostly works with database prefixes, foreign key constraints
+  must be specified in raw SQL, which needs the prefixed table name.
+-->
+<schema version="0.3">
+  <table name="affiliation_check_enrollers">
+    <field name="id" type="I">
+      <key />
+      <autoincrement />
+    </field>
+<!-- In order to migrate this plugin to v4.0.0, add this fk and drop the next one
+    <field name="co_enrollment_flow_wedge_id" type="I">
+      <constraint>REFERENCES cm_co_enrollment_flow_wedges(id)</constraint>
+    </field>
+-->
+    <field name="co_enrollment_flow_id" type="I">
+      <constraint>REFERENCES cm_co_enrollment_flows(id)</constraint>
+    </field>
+    <field name="env_var" type="C" size="80" />
+    <field name="match_regex" type="C" size="80" />
+    <field name="redirect_url" type="C" size="160" />
+    <field name="created" type="T" />
+    <field name="modified" type="T" />
+    <field name="affiliation_check_enroller_id" type="I">
+      <constraint>REFERENCES cm_affiliation_check_enrollers(id)</constraint>
+    </field>
+    <field name="revision" type="I" />
+    <field name="deleted" type="L" />
+    <field name="actor_identifier" type="C" size="256" />
+    
+<!-- Enable these indices when converting to v4.0.0 (and drop the next one)
+    <index name="affiliation_check_enrollers_i1">
+      <col>co_enrollment_flow_wedge_id</col>
+    </index>
+    <index name="affiliation_check_enrollers_i2">
+      <col>affiliation_check_enroller_id</col>
+    </index>
+-->
+    <index name="affiliation_check_enrollers_i1">
+      <col>co_enrollment_flow_id</col>
+    </index>
+  </table>
+</schema>
